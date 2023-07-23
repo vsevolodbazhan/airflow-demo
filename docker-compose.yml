@@ -59,7 +59,7 @@ services:
     container_name: airflow-scheduler
     command: scheduler
     volumes:
-      - ./dags:$AIRFLOW_HOME/dags:r
+      - ./dags:/opt/airflow/dags:r
     healthcheck:
       test:
         [
