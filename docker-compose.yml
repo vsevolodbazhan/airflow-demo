@@ -8,8 +8,14 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: 0wmxbE7GMuz4FmSjbUy_1oyT49lrsbizuB4K9F0OqjQ=
     AIRFLOW__WEBSERVER__SECRET_KEY: llJZGpD6Wj181Jaz5CWg5ydmf0JxnMS6jIv7M8Ue-Xw=
     AIRFLOW__WEBSERVER__WORKERS: 1
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:admin@airflow-database:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:password@airflow-database:5432/airflow
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: true
+    AIRFLOW__SECRETS__BACKEND: airflow.secrets.local_filesystem.LocalFilesystemBackend
+    AIRFLOW__SECRETS__BACKEND_KWARGS: |
+      {
+        "connections_file_path": "/opt/airflow/secrets/connections.json",
+        "variables_file_path": "/opt/airflow/secrets/variables.json"
+      }
     SQLALCHEMY_SILENCE_UBER_WARNING: 1
 
 services:
@@ -18,7 +24,7 @@ services:
     container_name: airflow-database
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
+      POSTGRES_PASSWORD: password
       POSTGRES_DB: airflow
     healthcheck:
       test:
@@ -44,7 +50,7 @@ services:
         airflow db upgrade
         airflow users create \
           --username admin \
-          --password admin \
+          --password password \
           --firstname John \
           --lastname Doe \
           --role Admin \
@@ -59,7 +65,8 @@ services:
     container_name: airflow-scheduler
     command: scheduler
     volumes:
-      - ./dags:/opt/airflow/dags:r
+      - ./demo/dags:/opt/airflow/dags:r
+      - ./demo/secrets:/opt/airflow/secrets:r
     healthcheck:
       test:
         [
@@ -104,6 +111,56 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  storage:
+    image: minio/minio:RELEASE.2023-07-21T21-12-44Z
+    container_name: storage
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    command: [ "server", "/data", "--console-address", ":9001" ]
+    ports:
+      - 9001:9001 # Console
+      - 9000:9000 # API
+    volumes:
+      - storage:/storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "http://localhost:9001/minio/health/live"
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  storage-init:
+    image: minio/mc:RELEASE.2023-07-21T20-44-27Z
+    container_name: storage-init
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        /usr/bin/mc config host rm local;
+        /usr/bin/mc config host add --quiet --api s3v4 local http://storage:9000 admin password;
+        /usr/bin/mc rm --recursive --force local/storage;
+        /usr/bin/mc mb local/storage;
+        /usr/bin/mc policy set public local/storage;
+        exit 0;
+    depends_on:
+      storage:
+        condition: service_healthy
+
 networks:
   default:
     name: airflow-network
+
+volumes:
+  storage:
