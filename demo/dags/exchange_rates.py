@@ -4,6 +4,9 @@ from typing import TypedDict
 
 import requests
 from airflow.decorators import dag, task
+from airflow.models import DagRun, XCom
+from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
+from airflow.utils.session import create_session
 
 
 class CurrencyPair(TypedDict):
@@ -19,8 +22,8 @@ class ExchangeRate(TypedDict):
 
 @dag(
     start_date=datetime.datetime(year=2023, month=7, day=1),
-    schedule_interval=None,
-    catchup=True,
+    schedule_interval="@once",
+    catchup=False,
     max_active_runs=1,
 )
 def exchange_rates():
@@ -65,15 +68,38 @@ def exchange_rates():
 
         return output.getvalue()
 
-    merge_rates(
-        extract_rates.expand(
-            pair=[
-                CurrencyPair(base="USD", counter="EUR"),
-                CurrencyPair(base="USD", counter="GBP"),
-                CurrencyPair(base="USD", counter="THB"),
-                CurrencyPair(base="USD", counter="SGD"),
-            ]
+    upload_rates = S3CreateObjectOperator(
+        task_id="upload_rates",
+        aws_conn_id="minio",
+        s3_bucket="storage",
+        s3_key="exchange_rates/{{ ds }}.csv",
+        data="{{ task_instance.xcom_pull(task_ids='merge_rates') }}",
+        replace=True,
+    )
+
+    @task
+    def clean_xcom(**kwargs) -> None:
+        dag_run: DagRun = kwargs["dag_run"]
+        with create_session() as session:
+            session.query(XCom).filter(
+                XCom.dag_id == dag_run.dag_id,
+                XCom.run_id == dag_run.run_id,
+            ).delete()
+
+    (
+        merge_rates(
+            extract_rates.expand(
+                pair=[
+                    CurrencyPair(base="USD", counter="CAD"),
+                    CurrencyPair(base="EUR", counter="USD"),
+                    CurrencyPair(base="USD", counter="CHF"),
+                    CurrencyPair(base="GBP", counter="USD"),
+                    CurrencyPair(base="NZD", counter="USD"),
+                ]
+            )
         )
+        >> upload_rates
+        >> clean_xcom()
     )
 
 
