@@ -4,7 +4,7 @@ from typing import TypedDict
 
 import requests
 from airflow.decorators import dag, task
-from airflow.models import DagRun, XCom
+from airflow.models import DAG, DagRun, Variable, XCom
 from airflow.providers.amazon.aws.operators.s3 import S3CreateObjectOperator
 from airflow.utils.session import create_session
 
@@ -28,13 +28,24 @@ class ExchangeRate(TypedDict):
 )
 def exchange_rates():
     @task
-    def extract_rates(pair: CurrencyPair, **kwargs) -> ExchangeRate:
+    def extract_rates(
+        pair: CurrencyPair,
+        # Default values are required to avoid a TypeError.
+        dag: DAG = None,
+        ds: str = None,
+    ) -> ExchangeRate:
+        """
+        Extract rates from the Exchange Rates API
+        and convert them to a structured format.
+        """
         response = requests.get(
-            url="https://api.exchangerate.host/convert",
+            # Extract API endpoint from Variable
+            # with the same name as the DAG ID.
+            url=Variable.get(dag.dag_id).get("endpoint"),
             params={
                 "from": pair["base"],
                 "to": pair["counter"],
-                "date": kwargs["ds"],
+                "date": ds,
             },
         )
         content = response.json()
@@ -49,6 +60,9 @@ def exchange_rates():
 
     @task
     def merge_rates(rates: list[ExchangeRate]) -> str:
+        """
+        Merge the extracted rates into a single CSV-formatted string.
+        """
         import csv
         import io
 
@@ -68,6 +82,7 @@ def exchange_rates():
 
         return output.getvalue()
 
+    # Upload the merged rates to S3.
     upload_rates = S3CreateObjectOperator(
         task_id="upload_rates",
         aws_conn_id="minio",
@@ -77,6 +92,8 @@ def exchange_rates():
         replace=True,
     )
 
+    # Clean up artifacts from the XCom including
+    # the extracted rates and the merged rates.
     @task
     def clean_xcom(**kwargs) -> None:
         dag_run: DagRun = kwargs["dag_run"]
@@ -89,6 +106,7 @@ def exchange_rates():
     (
         merge_rates(
             extract_rates.expand(
+                # Expand to create a dedicated task for each currency pair.
                 pair=[
                     CurrencyPair(base="USD", counter="CAD"),
                     CurrencyPair(base="EUR", counter="USD"),
