@@ -1,3 +1,7 @@
+[![Uses Apache Airflow](https://img.shields.io/badge/Uses-Apache_Airflow-blue)](https://airflow.apache.org/)
+![License MIT](https://img.shields.io/badge/License-MIT-green)
+
+
 # Airflow Demo Project
 
 Airflow-based demo pipeline that extracts currency exchange rates and
