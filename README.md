@@ -1,16 +1,14 @@
 # Airflow Demo Project
 
 Airflow-based demo pipeline that extracts currency exchange rates and
-and stores them in an S3-compliant repository.
-
-The goal of this demo is to provide a complete, production-like pipeline
+and stores them in an S3-compatible storage. The goal of this demo is to provide a complete, production-like pipeline
 on which to base tutorials and blog posts.
 
 ## Walkthrough
 
 ### Setup
 
-Docker Compose is used to setup the Airflow instance and supportive services (such as MinIO).
+Docker Compose is used to setup the Airflow instance and supportive services (such as Minio).
 
 - `airflow-database`: a PostgreSQL database that is used to store Airflow's metadata.
 - `airflow-init`: a service that is used to initialize the Airflow database and create admin user.
@@ -34,20 +32,10 @@ This demo's Airflow instances used `LocalExecutor` and runs its task directly in
 
 This DAG extracts exchange rates from the Exchange Rates API and uploads them to S3.
 
-The DAG consists of the following tasks:
-
-- `extract_rates` extracts exchange rates for a given currency pair.
+- `extract_rates` task extracts exchange rates for a given currency pair.
 - `merge_rates` merges the extracted rates into a single CSV-formatted string.
 - `upload_rates` uploads the merged rates to S3.
 - `clean_xcom` cleans up artifacts from the XCom, including the extracted rates and the merged rates.
-
-The `extract_rates` task uses the `request` library to make a request to the Exchange Rates API. The API endpoint is extracted from a Variable with the same name as the DAG ID.
-
-The `merge_rates` task uses the `csv` and `io` libraries to merge the extracted rates into a single CSV-formatted string.
-
-The `upload_rates` task uses the `S3CreateObjectOperator` operator to upload the merged rates to S3. The S3 bucket and key are configured in the DAG.
-
-The `clean_xcom` task uses the XCom model to clean up artifacts from the XCom. The XCom stores intermediate results from tasks, and it can be used to pass data between tasks.
 
 Here are some additional notes about the DAG:
 
